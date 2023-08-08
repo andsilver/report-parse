@@ -1,1 +1,5 @@
 python-doctr[torch]
+
+numpy~=1.23.5
+pandas~=1.5.3
+fuzzywuzzy~=0.18.0
