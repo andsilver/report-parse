@@ -1,0 +1,21 @@
+version: '3.1'
+
+services:
+  extract-info:
+    container_name: extract-info
+    restart: unless-stopped
+    tty: true
+    build: .
+    volumes:
+      - .:/extract-info
+    runtime: nvidia
+    networks:
+      - extract_network
+    environment:
+      - TZ=Asia/Singapore
+      - DEBIAN_FRONTEND=noninteractive
+      - NVIDIA_VISIBLE_DEVICES=all
+
+networks:
+  extract_network:
+    driver: bridge
