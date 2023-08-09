@@ -246,7 +246,7 @@ class ParseReport:
                 if k.hd > height or column_data.iloc[i + 1].h2d.item() > height:
                     break
                 else:
-                    values.append(k.value)
+                    values.append(k)
 
             return values
         except Exception as e:
@@ -257,28 +257,17 @@ class ParseReport:
         lien_tables = []
         for i, table in notice_lien.iterrows():
             # table = notice_lien.iloc[0][["page_idx", "block_idx", "line_idx", "paired"]]
+            c = self.words[(self.words.page_idx == table.page_idx)]
             kind_of_tax = self.find_column_values(table, "Kind", "Tax")
-            tax_period = self.find_column_values(table, "Tax", "Period", 0.02, 0.02)
-            identifying_number = self.find_column_values(table, "Identifying", "Number")
-            date_of_assessment = self.find_column_values(table, "Date", "of", 0.03, 0.03)
-            last_day_for = self.find_column_values(table, "Last", "for", 0.02, 0.02)
-            unpaid_balance = self.find_column_values(table, "Unpaid", "Balance", 0.05, 0.05)
-            lien_dict = dict(
-                kind_of_tax=kind_of_tax,
-                tax_period=tax_period,
-                identifying_number=identifying_number,
-                date_of_assessment=date_of_assessment,
-                last_day_for=last_day_for,
-                unpaid_balance=unpaid_balance
-            )
+            first_col = pd.DataFrame(kind_of_tax)
+            rows = [["Kind of Tax (a)", "Tax Period Ending (b)", "Identifying Number (c)", "Date of Assessment",  "Last Day for Refining (e)", "Unpaid Balance of Assessment (f)"]]
+            for k, v in first_col.iterrows():
+                line_values = list(c[(c.y1 >= c[c.line_idx == v.line_idx].y1.min()) & (c.y2 <= c[c.line_idx == v.line_idx].y2.max())].value.values)
+                line_values.append(line_values[0])
+                rows.append(line_values[1:])
 
-            none = True
-            for k, v in lien_dict.items():
-                if v is not None:
-                    none = False
-
-            if not none:
-                lien_tables.append(lien_dict)
+            if len(rows) > 1:
+                lien_tables.append(rows)
 
         return lien_tables
 
@@ -335,21 +324,3 @@ if __name__ == '__main__':
     }
 
     print(json.dumps(information, indent=4))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
