@@ -4,6 +4,12 @@ from fuzzywuzzy import fuzz
 from doctr.models import ocr_predictor
 import json
 import pandas as pd
+import sys
+
+
+if not sys.warnoptions:
+    import warnings
+    warnings.simplefilter("ignore")
 
 
 class ParseReport:
@@ -62,7 +68,6 @@ class ParseReport:
 
             return " ".join(line)
         except Exception as e:
-            print(e)
             return None
 
     def find_attribute_two(self, word1, word2, extract_value=True, context=None):
@@ -86,7 +91,6 @@ class ParseReport:
 
             return " ".join(line)
         except Exception as e:
-            print(e)
             return None
 
     def company_name(self):
@@ -187,57 +191,96 @@ class ParseReport:
         return lien_list
 
     def find_table_pages(self, word1, word2):
-        context = self.words
-        # word1, word2 = "Notice", "Lien"
-        line = context[context['value'].str.contains(word1) | context['value'].str.contains(word2)][
-            ["page_idx", "block_idx", "line_idx", "x1", "y1", "x2", "y2", "value"]]
+        try:
+            context = self.words
+            # word1, word2 = "Notice", "Lien"
+            line = context[context['value'].str.contains(word1) | context['value'].str.contains(word2)][
+                ["page_idx", "block_idx", "line_idx", "x1", "y1", "x2", "y2", "value"]]
 
-        line['paired'] = line.value + " " + line.value.shift(-1)
-        line['space'] = line.x1.shift(-1) - line.x2
-        line['align'] = (abs(line.y1.shift(-1) - line.y1) + (line.y2.shift(-1) - line.y2)) / 2
+            line['paired'] = line.value + " " + line.value.shift(-1)
+            line['space'] = line.x1.shift(-1) - line.x2
+            line['align'] = (abs(line.y1.shift(-1) - line.y1) + (line.y2.shift(-1) - line.y2)) / 2
 
-        line["score"] = line["paired"].apply(lambda x: 100 - fuzz.ratio(str(x), str(word1) + " " + str(word2)))
-        line = line[line.score < 10]
-        line = line.sort_values(by=['score', 'space', "align"])
+            line["score"] = line["paired"].apply(lambda x: 100 - fuzz.ratio(str(x), str(word1) + " " + str(word2)))
+            line = line[line.score < 10]
+            line = line.sort_values(by=['score', 'space', "align"])
 
-        return line
+            return line
+        except Exception as e:
+            return None
 
-    def find_column_values(self, table, word1, word2, right=0.0, left=0.0):
-        # word1, word2 = "Kind", "Tax"
-        c = report.words[(report.words.page_idx == table.page_idx)]
-        column = c[c['value'].str.contains(word1) | c['value'].str.contains(word2)][
-            ["page_idx", "block_idx", "line_idx", "x1", "y1", "x2", "y2", "value"]]
-        column['paired'] = column.value + " " + column.value.shift(-1)
-        column['space'] = abs(column.x1.shift(-1) - column.x2)
-        column['align'] = (abs(column.y1.shift(-1) - column.y1) + (column.y2.shift(-1) - column.y2)) / 2
+    @staticmethod
+    def find_column_values(context, word1, word2, right=0.0, left=0.0, height=0.21):
+        try:
+            # word1, word2 = "Kind", "Tax"
+            c = report.words[(report.words.page_idx == context.page_idx)]
+            column = c[c['value'].str.contains(word1) | c['value'].str.contains(word2)][
+                ["page_idx", "block_idx", "line_idx", "x1", "y1", "x2", "y2", "value"]]
+            column['paired'] = column.value + " " + column.value.shift(-1)
+            column['space'] = abs(column.x1.shift(-1) - column.x2)
+            column['align'] = (abs(column.y1.shift(-1) - column.y1) + (column.y2.shift(-1) - column.y2)) / 2
 
-        column['x12'] = column.x1.shift(-1)
-        column['y12'] = column.y1.shift(-1)
-        column['x22'] = column.x2.shift(-1)
-        column['y22'] = column.y2.shift(-1)
+            column['x12'] = column.x1.shift(-1)
+            column['y12'] = column.y1.shift(-1)
+            column['x22'] = column.x2.shift(-1)
+            column['y22'] = column.y2.shift(-1)
 
-        column["score"] = column["paired"].apply(lambda x: 100 - fuzz.ratio(str(x), str(word1) + " " + str(word2)))
-        column = column[column.score < 10]
-        column = column.sort_values(by=['score', 'space', "align"])
+            column["score"] = column["paired"].apply(lambda x: 100 - fuzz.ratio(str(x), str(word1) + " " + str(word2)))
+            column = column[column.score < 10]
+            column = column.sort_values(by=['score', 'space', "align"])
 
-        column_data = c[(c.x1 >= column.x1.item() - left) & (c.x2 <= column.x22.item() + right) & (c.y1 >= column.y2.item())]
-        column_data['hd'] = abs(column_data.y1.shift(-1) - column.y2.item())
-        column_data = column_data.sort_values(by=['hd'])
-        column_data['bid'] = abs(column_data.block_idx.shift(-1) - column_data.block_idx)
-        column_data['lid'] = abs(column_data.line_idx.shift(-1) - column_data.line_idx)
-        column_data['h2d'] = abs(column_data.hd.shift(-1) - column_data.hd)
-        column_data = column_data.sort_values(by=['hd', 'h2d', 'bid', "lid"])
-        column_data = column_data.reset_index(drop=True)
-        values = []
-        for i, k in column_data.iterrows():
-            if i < 2 and (k.bid > 1 or k.lid > 1):
-                continue
-            elif k.bid > 1 or k.lid > 1 or column_data.iloc[i + 1].h2d.item() > 0.12:
-                break
-            else:
-                values.append(k.value)
+            column_data = c[(c.x1 >= column.x1.item() - left) & (c.x2 <= column.x22.item() + right) & (c.y1 - 0.01 >= column.y2.item())]
+            column_data['hd'] = abs(column_data.y1.shift(-1) - column.y2.item())
+            column_data = column_data.sort_values(by=['hd'])
+            column_data['bid'] = abs(column_data.block_idx.shift(-1) - column_data.block_idx)
+            column_data['lid'] = abs(column_data.line_idx.shift(-1) - column_data.line_idx)
+            column_data['h2d'] = abs(column_data.hd.shift(-1) - column_data.hd)
+            column_data = column_data.sort_values(by=['hd', 'h2d', 'bid', "lid"])
+            column_data = column_data.reset_index(drop=True)
+            values = []
+            for i, k in column_data.iterrows():
+                if context.block_idx == k.block_idx:
+                    continue
+                # elif k.bid > 1 or k.lid > block_d or column_data.iloc[i + line_d].hd.item() > height:
+                #     break
+                if k.hd > height or column_data.iloc[i + 1].h2d.item() > height:
+                    break
+                else:
+                    values.append(k.value)
 
-        return values
+            return values
+        except Exception as e:
+            return None
+
+    def get_lien_tables(self):
+        notice_lien = self.find_table_pages("Notice", "Lien")
+        lien_tables = []
+        for i, table in notice_lien.iterrows():
+            # table = notice_lien.iloc[0][["page_idx", "block_idx", "line_idx", "paired"]]
+            kind_of_tax = self.find_column_values(table, "Kind", "Tax")
+            tax_period = self.find_column_values(table, "Tax", "Period", 0.02, 0.02)
+            identifying_number = self.find_column_values(table, "Identifying", "Number")
+            date_of_assessment = self.find_column_values(table, "Date", "of", 0.03, 0.03)
+            last_day_for = self.find_column_values(table, "Last", "for", 0.02, 0.02)
+            unpaid_balance = self.find_column_values(table, "Unpaid", "Balance", 0.05, 0.05)
+            lien_dict = dict(
+                kind_of_tax=kind_of_tax,
+                tax_period=tax_period,
+                identifying_number=identifying_number,
+                date_of_assessment=date_of_assessment,
+                last_day_for=last_day_for,
+                unpaid_balance=unpaid_balance
+            )
+
+            none = True
+            for k, v in lien_dict.items():
+                if v is not None:
+                    none = False
+
+            if not none:
+                lien_tables.append(lien_dict)
+
+        return lien_tables
 
 
 if __name__ == '__main__':
@@ -283,62 +326,30 @@ if __name__ == '__main__':
         "lien": report.get_lien(),
 
         "Restricted Real Estate:": report.find_attribute_two("Real", "Estate:"),
-        "Recording Information:": report.find_attribute_two("Record", " Owner(s):"),
+        "Recording Information:": report.find_attribute_two("Record", "Owner(s):"),
 
         "Owner/Grantee:": report.find_attribute_one("Owner/Grantee:"),
         "Year Acquired:": report.find_attribute_two("Year", "Acquired:"),
         "Vesting Instrument Recording Information:": report.find_attribute_two("Instrument", "Recording"),
+        "federal_tax_lien": report.get_lien_tables()
     }
 
-    # more_information = {
-    #
-    #     "Vesting Instrument Type:": report.find_attribute_two("Vesting", "Instrument"),
-    #     "Executed:": report.find_attribute_one("Executed:"),
-    #     "Recorded:": report.find_attribute_one("Recorded:"),
-    #     "Recording Information:": report.find_attribute_two("Recording", "Information:"),
-    #     "Comment:": report.find_attribute_one("Comment:"),
-    #
-    #     "Instrument Type:": report.find_attribute_two("Instrument", "Type:"),
-    #     "From:": report.find_attribute_one("From:"),
-    #     "To:": report.find_attribute_one("To:"),
-    #     "Mortgage Executed:": report.find_attribute_two("Mortgage", "Executed:"),
-    #     "Mortgage Recorded:": report.find_attribute_two("Mortgage", "Recorded:"),
-    #     "Mortgage Recording Information:": report.find_attribute_two("Mortgage", "Recording"),
-    #
-    #     "Lien Type:": report.find_attribute_two("Lien", "Type:"),
-    #     "Filed Against:": report.find_attribute_two("Filed", "Against:"),
-    #     # "Amount:": report.find_attribute_two("Record", " Owner(s):"),
-    #     "Recorded Date:": report.find_attribute_two("Recorded", "Date:"),
-    #     # "Recording Information:": report.find_attribute_two("Record", " Owner(s):"),
-    #     # "Comment:": report.find_attribute_two("Record", " Owner(s):"),
-    #
-    #     # "Lien Type:": report.find_attribute_two("Record", " Owner(s):"),
-    #     # "Filed Against:": report.find_attribute_two("Record", " Owner(s):"),
-    #     # "Amount:": report.find_attribute_two("Record", " Owner(s):"),
-    #     # "Recorded Date:": report.find_attribute_two("Record", " Owner(s):"),
-    #     # "Recording Information:": report.find_attribute_two("Record", " Owner(s):"),
-    #     # "Comment:": report.find_attribute_two("Record", " Owner(s):"),
-    #
-    #     "Restricted Real Estate:": report.find_attribute_two("Real", "Estate:"),
-    #     # "Recording Information:": report.find_attribute_two("Record", " Owner(s):"),
-    #
-    #     "Owner/Grantee:": report.find_attribute_one("Owner/Grantee:"),
-    #     "Year Acquired:": report.find_attribute_two("Year", "Acquired:"),
-    #     "Vesting Instrument Recording Information:": report.find_attribute_two("Instrument", "Recording"),
-    # }
     print(json.dumps(information, indent=4))
-    notice_lien = report.find_table_pages("Notice", "Lien")
-    table = notice_lien.iloc[0][["page_idx", "block_idx", "line_idx", "paired"]]
-    kind_of_tax = report.find_column_values(table, "Kind", "Tax")
-    tax_period = report.find_column_values(table, "Tax", "Period", 0.02, 0.02)
-    identifying_number = report.find_column_values(table, "Identifying", "Number")
-    date_of_assessment = report.find_column_values(table, "Date", "of", 0.02, 0.02)
-    last_day_for = report.find_column_values(table, "Last", "for", 0.02, 0.02)
-    unpaid_balance = report.find_column_values(table, "Unpaid", "Balance", 0.02, 0.02)
-    print(kind_of_tax)
-    print(tax_period)
-    print(identifying_number)
-    print(date_of_assessment)
-    print(last_day_for)
-    print(unpaid_balance)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
