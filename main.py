@@ -72,8 +72,8 @@ class ParseReport:
             line = context[context['value'].str.contains(word1) | context['value'].str.contains(word2)][
                 ["page_idx", "block_idx", "line_idx", "x1", "y1", "x2", "y2", "value"]]
             line['paired'] = line.value + " " + line.value.shift(-1)
-            line['space'] = line.x1.shift(-1) - line.x2
-            line['align'] = ((line.y1.shift(-1) - line.y1) + (line.y2.shift(-1) - line.y2)) / 2
+            line['space'] = abs(line.x1.shift(-1) - line.x2)
+            line['align'] = (abs(line.y1.shift(-1) - line.y1) + abs(line.y2.shift(-1) - line.y2)) / 2
 
             line["score"] = line["paired"].apply(lambda x: 100 - fuzz.ratio(str(x), str(word1) + " " + str(word2)))
             line = line[line.score < 10]
@@ -103,8 +103,8 @@ class ParseReport:
         line = context[context['value'].str.contains(word1) | context['value'].str.contains(word2)][
             ["page_idx", "block_idx", "line_idx", "x1", "y1", "x2", "y2", "value"]]
         line['paired'] = line.value + " " + line.value.shift(-1)
-        line['space'] = line.x1.shift(-1) - line.x2
-        line['align'] = ((line.y1.shift(-1) - line.y1) + (line.y2.shift(-1) - line.y2)) / 2
+        line['space'] = abs(line.x1.shift(-1) - line.x2)
+        line['align'] = (abs(line.y1.shift(-1) - line.y1) + abs(line.y2.shift(-1) - line.y2)) / 2
 
         line["score"] = line["paired"].apply(lambda x: 100 - fuzz.ratio(str(x), str(word1) + " " + str(word2)))
         line = line[line.score < 10]
@@ -185,6 +185,59 @@ class ParseReport:
                 lien_list.append(lien_dict)
 
         return lien_list
+
+    def find_table_pages(self, word1, word2):
+        context = self.words
+        # word1, word2 = "Notice", "Lien"
+        line = context[context['value'].str.contains(word1) | context['value'].str.contains(word2)][
+            ["page_idx", "block_idx", "line_idx", "x1", "y1", "x2", "y2", "value"]]
+
+        line['paired'] = line.value + " " + line.value.shift(-1)
+        line['space'] = line.x1.shift(-1) - line.x2
+        line['align'] = (abs(line.y1.shift(-1) - line.y1) + (line.y2.shift(-1) - line.y2)) / 2
+
+        line["score"] = line["paired"].apply(lambda x: 100 - fuzz.ratio(str(x), str(word1) + " " + str(word2)))
+        line = line[line.score < 10]
+        line = line.sort_values(by=['score', 'space', "align"])
+
+        return line
+
+    def find_column_values(self, table, word1, word2, right=0.0, left=0.0):
+        # word1, word2 = "Kind", "Tax"
+        c = report.words[(report.words.page_idx == table.page_idx)]
+        column = c[c['value'].str.contains(word1) | c['value'].str.contains(word2)][
+            ["page_idx", "block_idx", "line_idx", "x1", "y1", "x2", "y2", "value"]]
+        column['paired'] = column.value + " " + column.value.shift(-1)
+        column['space'] = abs(column.x1.shift(-1) - column.x2)
+        column['align'] = (abs(column.y1.shift(-1) - column.y1) + (column.y2.shift(-1) - column.y2)) / 2
+
+        column['x12'] = column.x1.shift(-1)
+        column['y12'] = column.y1.shift(-1)
+        column['x22'] = column.x2.shift(-1)
+        column['y22'] = column.y2.shift(-1)
+
+        column["score"] = column["paired"].apply(lambda x: 100 - fuzz.ratio(str(x), str(word1) + " " + str(word2)))
+        column = column[column.score < 10]
+        column = column.sort_values(by=['score', 'space', "align"])
+
+        column_data = c[(c.x1 >= column.x1.item() - left) & (c.x2 <= column.x22.item() + right) & (c.y1 >= column.y2.item())]
+        column_data['hd'] = abs(column_data.y1.shift(-1) - column.y2.item())
+        column_data = column_data.sort_values(by=['hd'])
+        column_data['bid'] = abs(column_data.block_idx.shift(-1) - column_data.block_idx)
+        column_data['lid'] = abs(column_data.line_idx.shift(-1) - column_data.line_idx)
+        column_data['h2d'] = abs(column_data.hd.shift(-1) - column_data.hd)
+        column_data = column_data.sort_values(by=['hd', 'h2d', 'bid', "lid"])
+        column_data = column_data.reset_index(drop=True)
+        values = []
+        for i, k in column_data.iterrows():
+            if i < 2 and (k.bid > 1 or k.lid > 1):
+                continue
+            elif k.bid > 1 or k.lid > 1 or column_data.iloc[i + 1].h2d.item() > 0.12:
+                break
+            else:
+                values.append(k.value)
+
+        return values
 
 
 if __name__ == '__main__':
@@ -274,4 +327,18 @@ if __name__ == '__main__':
     #     "Vesting Instrument Recording Information:": report.find_attribute_two("Instrument", "Recording"),
     # }
     print(json.dumps(information, indent=4))
+    notice_lien = report.find_table_pages("Notice", "Lien")
+    table = notice_lien.iloc[0][["page_idx", "block_idx", "line_idx", "paired"]]
+    kind_of_tax = report.find_column_values(table, "Kind", "Tax")
+    tax_period = report.find_column_values(table, "Tax", "Period", 0.02, 0.02)
+    identifying_number = report.find_column_values(table, "Identifying", "Number")
+    date_of_assessment = report.find_column_values(table, "Date", "of", 0.02, 0.02)
+    last_day_for = report.find_column_values(table, "Last", "for", 0.02, 0.02)
+    unpaid_balance = report.find_column_values(table, "Unpaid", "Balance", 0.02, 0.02)
+    print(kind_of_tax)
+    print(tax_period)
+    print(identifying_number)
+    print(date_of_assessment)
+    print(last_day_for)
+    print(unpaid_balance)
 
