@@ -13,6 +13,48 @@ if not sys.warnoptions:
 
 
 class ParseReport:
+    """
+    Attributes
+    ----------
+    words : pd.Dataframe
+        Contains each word of the documents separately with unique identifier. The data type is pd.Dataframe.
+        Unique Identifiers: page_idx, block_idx, line_idx, and word_idx.
+
+    Methods
+    -------
+    find_attribute_one(self, word, extract_value=True, context=None)
+        Finds attributes values with one word.
+
+    find_attribute_two(self, word1, word2, extract_value=True, context=None)
+        Finds attributes values with two words.
+
+    company_name(self)
+        First line of the document, and assign as a company name.
+
+    extract_value(sentence):
+        Separates a string with key value combination, and returns value.
+
+    get_lines(self, word1, word2, context=None):
+        Finds lines containing two words from the whole document.
+
+    get_lien(self):
+        Finds information about 'Lien Types'.
+
+    get_vesting_instrument(self):
+        Finds information about 'Vesting Instrument Type'
+
+    get_instrument(self):
+        Finds information about 'Instrument Type'.
+
+    find_table_pages(self, word1, word2):
+        Finds pages that can have 'Federal Tax Lien' tables.
+
+    find_column_values(context, word1, word2, right=0.0, left=0.0, height=0.21):
+        Finds values for a specific column for a specific table.
+
+    get_lien_tables(self):
+        Finds all the value in a structure way for a table.
+    """
     def __init__(self, file, json_file=False, save_json=False):
         if json_file:
             df = pd.read_json(file)
@@ -58,6 +100,14 @@ class ParseReport:
         self.words = words.join(pd.json_normalize(words.pop('word_geometry')))
 
     def find_attribute_one(self, word, extract_value=True, context=None):
+        """
+        Finds attributes values with one word.
+
+        :param word: A word to match in any line of the document.
+        :param extract_value: if True returns only the value else returns the whole line.
+        :param context: if there are any specific context to look at, to shorten the search space.
+        :return: a string of value for an attribute.
+        """
         if context is None:
             context = self.words
         try:
@@ -71,6 +121,15 @@ class ParseReport:
             return None
 
     def find_attribute_two(self, word1, word2, extract_value=True, context=None):
+        """
+        Finds attributes values with two words.
+
+        :param word1: first word of two to match with any line of the document
+        :param word2: second word of two to match with any line of the document
+        :param extract_value: if True returns only the value else returns the whole line.
+        :param context: if there are any specific context to look at, to shorten the search space.
+        :return: a string of value for an attribute.
+        """
         if context is None:
             context = self.words
         try:
@@ -94,13 +153,32 @@ class ParseReport:
             return None
 
     def company_name(self):
+        """
+        First line of the document, and assign as a company name.
+
+        :return: string (company name)
+        """
         return " ".join(self.words[(self.words['page_idx'] == 0) & (self.words['block_idx'] == 0) & (self.words['line_idx'] == 0)]["value"].values)
 
     @staticmethod
     def extract_value(sentence):
+        """
+        Separates a string with key value combination, and returns value.
+
+        :param sentence: a sentence to be split into key and value
+        :return: a string of value that was split
+        """
         return sentence.split(":")[-1].strip()
 
     def get_lines(self, word1, word2, context=None):
+        """
+        Finds lines containing two words from the whole document.
+
+        :param word1: first word of two to match with any line of the document
+        :param word2: second word of two to match with any line of the document
+        :param context: if there are any specific context to look at, to shorten the search space.
+        :return: a pd.Dataframe with high score of being the lines we are looking for.
+        """
         if context is None:
             context = self.words
 
@@ -117,6 +195,11 @@ class ParseReport:
         return line
 
     def get_lien(self):
+        """
+        Finds information about 'Lien Types'.
+
+        :return: information about lien types
+        """
         line = self.get_lines("Lien", "Type:")
 
         lien_list = []
@@ -142,6 +225,11 @@ class ParseReport:
         return lien_list
 
     def get_vesting_instrument(self):
+        """
+        Finds information about 'Vesting Instrument Type'
+
+        :return: information about vesting instrument type
+        """
         line = self.get_lines("Vesting", "Instrument")
 
         lien_list = []
@@ -166,6 +254,11 @@ class ParseReport:
         return lien_list
 
     def get_instrument(self):
+        """
+        Finds information about 'Instrument Type'.
+
+        :return: information about instrument type
+        """
         line = self.get_lines("Instrument", "Type:")
 
         lien_list = []
@@ -191,6 +284,13 @@ class ParseReport:
         return lien_list
 
     def find_table_pages(self, word1, word2):
+        """
+        Finds pages that can have 'Federal Tax Lien' tables.
+
+        :param word1: first word of two to match with any line of the document
+        :param word2: second word of two to match with any line of the document
+        :return: a pd.Dataframe with pages with high score of being the pages we are looking for
+        """
         try:
             context = self.words
             # word1, word2 = "Notice", "Lien"
@@ -211,6 +311,17 @@ class ParseReport:
 
     @staticmethod
     def find_column_values(context, word1, word2, right=0.0, left=0.0, height=0.21):
+        """
+        Finds values for a specific column for a specific table.
+
+        :param context: if there are any specific context to look at, to shorten the search space.
+        :param word1: first word of two to match with any line of the document
+        :param word2: second word of two to match with any line of the document
+        :param right: increase or decrease in right of the words for a column
+        :param left:  increase or decrease in left of the words for a column
+        :param height: height of the column to consider
+        :return: a pd.Dataframe containing rows for the values of the column
+        """
         try:
             # word1, word2 = "Kind", "Tax"
             c = report.words[(report.words.page_idx == context.page_idx)]
@@ -253,6 +364,11 @@ class ParseReport:
             return None
 
     def get_lien_tables(self):
+        """
+        Finds all the value in a structure way for a table.
+
+        :return: list of tables, tables are a list of rows
+        """
         notice_lien = self.find_table_pages("Notice", "Lien")
         lien_tables = []
         for i, table in notice_lien.iterrows():
